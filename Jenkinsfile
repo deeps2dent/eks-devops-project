@@ -3,9 +3,9 @@ pipeline {
 
     environment {
         AWS_REGION = "us-east-1"
-        ECR_REPO = "339712988423.dkr.ecr.us-east-1.amazonaws.com/eks-app"
-        CLUSTER_NAME = "eks-devops-cluster"
-        IMAGE_TAG = "1.0"
+        ACCOUNT_ID = "339712988423"
+        ECR_REPOSITORY = "eks-devops-app"
+        IMAGE_TAG = "${BUILD_NUMBER}"
     }
 
     stages {
@@ -16,39 +16,50 @@ pipeline {
             }
         }
 
-        stage('Build Image') {
+        stage('Build Docker Image') {
             steps {
-                sh 'docker build -t eks-app:$IMAGE_TAG ./app'
+                dir('app') {
+                    sh """
+                        docker build -t ${ECR_REPOSITORY}:${IMAGE_TAG} .
+                    """
+                }
             }
         }
 
         stage('Login to ECR') {
             steps {
-                sh '''
-                export AWS_PAGER=""
-                aws ecr get-login-password --region $AWS_REGION \
-                | docker login --username AWS --password-stdin $ECR_REPO
-                '''
+                sh """
+                    export AWS_PAGER=""
+                    aws ecr get-login-password --region ${AWS_REGION} | \
+                    docker login --username AWS --password-stdin \
+                    ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                """
             }
         }
 
-        stage('Push Image') {
+        stage('Tag & Push Image') {
             steps {
-                sh '''
-                docker tag eks-app:$IMAGE_TAG $ECR_REPO:$IMAGE_TAG
-                docker push $ECR_REPO:$IMAGE_TAG
-                '''
+                sh """
+                    docker tag ${ECR_REPOSITORY}:${IMAGE_TAG} \
+                    ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}
+
+                    docker push \
+                    ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}
+                """
             }
         }
 
         stage('Deploy to EKS') {
             steps {
-                sh '''
-                export AWS_PAGER=""
-                aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
-                kubectl apply -f k8s/deployment.yaml
-                kubectl apply -f k8s/service.yaml
-                '''
+                sh """
+                    export AWS_PAGER=""
+                    aws eks update-kubeconfig --region ${AWS_REGION} --name eks-devops-cluster
+
+                    kubectl set image deployment/eks-app-deployment \
+                    eks-app-container=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}
+
+                    kubectl rollout status deployment/eks-app-deployment
+                """
             }
         }
     }
