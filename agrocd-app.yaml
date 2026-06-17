@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: eks-app
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/deeps2dent/eks-devops-project
+    targetRevision: main
+    path: eks-app-chart
+    helm:
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
